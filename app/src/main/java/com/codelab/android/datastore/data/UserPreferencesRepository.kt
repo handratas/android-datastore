@@ -18,11 +18,18 @@ package com.codelab.android.datastore.data
 
 import android.content.Context
 import androidx.core.content.edit
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.*
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.map
+import java.io.IOException
 
 private const val USER_PREFERENCES_NAME = "user_preferences"
 private const val SORT_ORDER_KEY = "sort_order"
+private const val SHOW_COMPLETED_KEY = "show_completed"
 
 enum class SortOrder {
     NONE,
@@ -31,10 +38,18 @@ enum class SortOrder {
     BY_DEADLINE_AND_PRIORITY
 }
 
+data class UserPreferences(
+    val showCompleted: Boolean,
+    val sortOrder: SortOrder
+)
+
 /**
  * Class that handles saving and retrieving user preferences
  */
-class UserPreferencesRepository private constructor(context: Context) {
+class UserPreferencesRepository(
+    private val dataStore: DataStore<Preferences>,
+    context: Context
+) {
 
     private val sharedPreferences =
         context.applicationContext.getSharedPreferences(USER_PREFERENCES_NAME, Context.MODE_PRIVATE)
@@ -42,6 +57,33 @@ class UserPreferencesRepository private constructor(context: Context) {
     // Keep the sort order as a stream of changes
     private val _sortOrderFlow = MutableStateFlow(sortOrder)
     val sortOrderFlow: StateFlow<SortOrder> = _sortOrderFlow
+
+    private object PreferencesKeys {
+        val SHOW_COMPLETED = booleanPreferencesKey(SHOW_COMPLETED_KEY)
+        // Note: this has the the same name that we used with SharedPreferences.
+        val SORT_ORDER = stringPreferencesKey(SORT_ORDER_KEY)
+    }
+
+    val userPreferencesFlow: Flow<UserPreferences> = dataStore.data
+        .catch { exception ->
+            // dataStore.data throws an IOException when an error is encountered when reading data
+            if (exception is IOException) {
+                emit(emptyPreferences())
+            } else {
+                throw exception
+            }
+        }.map { preferences ->
+            // Get our show completed value, defaulting to false if not set:
+            val showCompleted = preferences[PreferencesKeys.SHOW_COMPLETED]?: false
+            UserPreferences(showCompleted, SortOrder.NONE)
+        }
+
+    suspend fun updateShowCompleted(showCompleted: Boolean) {
+        dataStore.edit { preferences ->
+            // Note: do not attempt to modify the MutablePreferences outside of the transform block.
+            preferences[PreferencesKeys.SHOW_COMPLETED] = showCompleted
+        }
+    }
 
     /**
      * Get the sort order. By default, sort order is None.
@@ -95,23 +137,6 @@ class UserPreferencesRepository private constructor(context: Context) {
     private fun updateSortOrder(sortOrder: SortOrder) {
         sharedPreferences.edit {
             putString(SORT_ORDER_KEY, sortOrder.name)
-        }
-    }
-
-    companion object {
-        @Volatile
-        private var INSTANCE: UserPreferencesRepository? = null
-
-        fun getInstance(context: Context): UserPreferencesRepository {
-            return INSTANCE ?: synchronized(this) {
-                INSTANCE?.let {
-                    return it
-                }
-
-                val instance = UserPreferencesRepository(context)
-                INSTANCE = instance
-                instance
-            }
         }
     }
 }
