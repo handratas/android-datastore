@@ -43,16 +43,13 @@ class TasksViewModel(
     // Keep the user preferences as a stream of changes
     private val userPreferencesFlow = userPreferencesRepository.userPreferencesFlow
 
-    // Keep the sort order as a stream of changes
-    private val sortOrderFlow = userPreferencesRepository.sortOrderFlow
-
     // Every time the sort order, the show completed filter or the list of tasks emit,
     // we should recreate the list of tasks
     private val tasksUiModelFlow = combine(
         repository.tasks,
-        userPreferencesFlow,
-        sortOrderFlow
-    ) { tasks: List<Task>, userPreference: UserPreferences, sortOrder: SortOrder ->
+        userPreferencesFlow
+    ) { tasks: List<Task>, userPreference: UserPreferences ->
+        val sortOrder = userPreference.sortOrder
         return@combine TasksUiModel(
             tasks = filterSortTasks(tasks, userPreference.showCompleted, sortOrder),
             showCompleted = userPreference.showCompleted,
@@ -87,11 +84,11 @@ class TasksViewModel(
         userPreferencesRepository.updateShowCompleted(show)
     }
 
-    fun enableSortByDeadline(enable: Boolean) {
+    fun enableSortByDeadline(enable: Boolean) = viewModelScope.launch {
         userPreferencesRepository.enableSortByDeadline(enable)
     }
 
-    fun enableSortByPriority(enable: Boolean) {
+    fun enableSortByPriority(enable: Boolean) = viewModelScope.launch {
         userPreferencesRepository.enableSortByPriority(enable)
     }
 }
